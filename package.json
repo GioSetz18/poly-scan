@@ -1,0 +1,25 @@
+{
+  "name": "polymarket-ai-release-pinger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "ts:build": "tsc --noEmit",
+    "ts:dry-run": "tsx ts-src/main.ts --dry-run",
+    "ts:start": "tsx ts-src/main.ts",
+    "ts:once": "tsx ts-src/main.ts --once",
+    "ts:show-events": "tsx ts-src/main.ts --show-events"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

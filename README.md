@@ -100,6 +100,48 @@ Run dry-run mode:
 
 Dry-run mode loads the watchlist, creates mock snapshots with a move from 8.5% to 24.1%, and prints the alert instead of sending Telegram.
 
+## TypeScript Version
+
+This repo also includes a replicated TypeScript implementation under `ts-src/`. It uses the same `.env` file, watchlist YAML, SQLite schema, alert rules, event log, and dry-run behavior.
+
+Install Node dependencies:
+
+```bash
+npm install
+```
+
+Type-check:
+
+```bash
+npm run ts:build
+```
+
+Run dry-run:
+
+```bash
+npm run ts:dry-run
+```
+
+Run continuously:
+
+```bash
+npm run ts:start
+```
+
+Run one polling cycle:
+
+```bash
+npm run ts:once
+```
+
+Show recent audit events:
+
+```bash
+npm run ts:show-events
+```
+
+The TypeScript version requires Node 24 or newer because it uses the built-in `node:sqlite` module.
+
 ## Alert Rules
 
 Implemented alert types:
