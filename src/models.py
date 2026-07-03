@@ -38,6 +38,9 @@ class MarketSnapshot:
     no_price: float | None
     volume: float | None
     liquidity: float | None
+    status: str | None = None
+    outcome: str | None = None
+    resolved_at: datetime | None = None
     raw_json: dict[str, Any] = field(default_factory=dict)
 
 
@@ -52,3 +55,20 @@ class AlertCandidate:
     price_move_pp: float | None
     volume_window: float | None
     raw_context: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class EventLogEntry:
+    market_id: str
+    event_type: str
+    source: str
+    title: str
+    timestamp: datetime
+    details_url: str | None = None
+    notes: str | None = None
+    alert_id: int | None = None
+    yes_price: float | None = None
+    no_price: float | None = None
+    volume: float | None = None
+    outcome: str | None = None
+    raw_context: dict[str, Any] = field(default_factory=dict)

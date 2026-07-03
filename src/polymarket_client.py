@@ -42,6 +42,9 @@ class PolymarketClient:
             no_price=normalized.get("no_price"),
             volume=normalized.get("volume"),
             liquidity=normalized.get("liquidity"),
+            status=normalized.get("status"),
+            outcome=normalized.get("outcome"),
+            resolved_at=normalized.get("resolved_at"),
             raw_json=raw,
         )
 
@@ -88,7 +91,7 @@ class PolymarketClient:
             return payload
         return None
 
-    def _normalize(self, raw: dict[str, Any]) -> dict[str, float | None]:
+    def _normalize(self, raw: dict[str, Any]) -> dict[str, Any]:
         payload = raw.get("payload", raw)
         market = self._pick_market(payload)
         yes_price = self._extract_yes_price(market)
@@ -98,6 +101,14 @@ class PolymarketClient:
             "no_price": no_price,
             "volume": self._number(market.get("volume") or market.get("volumeNum") or payload.get("volume")),
             "liquidity": self._number(market.get("liquidity") or market.get("liquidityNum") or payload.get("liquidity")),
+            "status": self._extract_status(market, payload),
+            "outcome": self._extract_outcome(market),
+            "resolved_at": self._parse_datetime(
+                market.get("resolvedAt")
+                or market.get("resolutionTime")
+                or market.get("closedTime")
+                or payload.get("resolvedAt")
+            ),
         }
 
     @staticmethod
@@ -123,6 +134,32 @@ class PolymarketClient:
         outcomes = market.get("outcomes")
         price = self._price_from_outcomes(outcomes, outcome_prices)
         return self._normalize_price(price) if price is not None else None
+
+    def _extract_status(self, market: dict[str, Any], payload: dict[str, Any]) -> str:
+        for key in ("status", "marketStatus"):
+            value = market.get(key) or payload.get(key)
+            if value:
+                return str(value).lower()
+        if self._bool_value(market.get("resolved") or payload.get("resolved")):
+            return "resolved"
+        if self._bool_value(market.get("closed") or payload.get("closed")):
+            return "closed"
+        return "open"
+
+    def _extract_outcome(self, market: dict[str, Any]) -> str | None:
+        for key in ("winningOutcome", "winner", "resolution", "resolvedOutcome"):
+            value = market.get(key)
+            if value:
+                return str(value)
+
+        yes_price = self._extract_yes_price(market)
+        if not self._bool_value(market.get("resolved") or market.get("closed")) or yes_price is None:
+            return None
+        if yes_price >= 0.99:
+            return "YES"
+        if yes_price <= 0.01:
+            return "NO"
+        return None
 
     def _price_from_outcomes(self, outcomes: Any, prices: Any) -> float | None:
         parsed_outcomes = self._maybe_json_list(outcomes)
@@ -159,3 +196,22 @@ class PolymarketClient:
     @staticmethod
     def _normalize_price(value: float) -> float:
         return value / 100.0 if value > 1.0 else value
+
+    @staticmethod
+    def _bool_value(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in {"true", "1", "yes", "resolved", "closed"}
+        return bool(value)
+
+    @staticmethod
+    def _parse_datetime(value: Any) -> datetime | None:
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None

@@ -133,8 +133,50 @@ SQLite tables are created automatically:
 - `markets`
 - `market_snapshots`
 - `alerts`
+- `event_log`
 
-Raw Polymarket responses are stored in `market_snapshots.raw_json` to make debugging easier.
+Raw Polymarket responses are stored in `market_snapshots.raw_json` to make debugging easier. The bot also stores market `status`, observed `outcome`, and `resolved_at` when those fields are available from Polymarket.
+
+## Event Log And Edge Audit
+
+Telegram pings are only the real-time layer. The `event_log` table is the audit layer for answering questions later:
+
+- When did the alert fire?
+- When did an official announcement happen?
+- Did YES continue moving after the alert?
+- Did the market resolve YES or NO?
+- Was there already public news?
+- Was the alert useful or a false positive?
+
+Automatic event rows:
+
+- `alert_sent`: written whenever a Telegram or dry-run alert is emitted
+- `market_outcome_observed`: written when a watched market appears closed/resolved or exposes an outcome
+
+Add a manual official announcement or review note:
+
+```bash
+.venv/bin/python -m src.main --log-event \
+  --event-market-id gemini-pro-release-july-2026 \
+  --event-type official_announcement \
+  --event-title "Google announces Gemini model update" \
+  --event-url "https://example.com/source" \
+  --event-notes "Compare this timestamp with the alert timestamp."
+```
+
+Show recent audit events:
+
+```bash
+.venv/bin/python -m src.main --show-events --limit 20
+```
+
+Show events for one market:
+
+```bash
+.venv/bin/python -m src.main --show-events --event-market-id gemini-pro-release-july-2026
+```
+
+After 30-50 alerts, this event log becomes a personal edge audit: you can compare alert timing, later price movement, public news timing, and final outcomes.
 
 ## Polymarket Data
 

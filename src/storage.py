@@ -6,10 +6,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .models import AlertCandidate, MarketConfig, MarketSnapshot
+from .models import AlertCandidate, EventLogEntry, MarketConfig, MarketSnapshot
 
 
 def connect(database_path: str | Path) -> sqlite3.Connection:
+    if str(database_path) == ":memory:":
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        return conn
     path = Path(database_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
@@ -31,6 +35,9 @@ def ensure_tables(conn: sqlite3.Connection) -> None:
             deadline TEXT,
             liquidity_tier TEXT,
             enabled INTEGER NOT NULL,
+            status TEXT,
+            outcome TEXT,
+            resolved_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -43,6 +50,9 @@ def ensure_tables(conn: sqlite3.Connection) -> None:
             no_price REAL,
             volume REAL,
             liquidity REAL,
+            status TEXT,
+            outcome TEXT,
+            resolved_at TEXT,
             raw_json TEXT NOT NULL,
             FOREIGN KEY (market_id) REFERENCES markets(id)
         );
@@ -67,8 +77,39 @@ def ensure_tables(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_alerts_market_type_time
             ON alerts (market_id, alert_type, timestamp);
+
+        CREATE TABLE IF NOT EXISTS event_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            market_id TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            source TEXT NOT NULL,
+            title TEXT NOT NULL,
+            details_url TEXT,
+            notes TEXT,
+            alert_id INTEGER,
+            yes_price REAL,
+            no_price REAL,
+            volume REAL,
+            outcome TEXT,
+            raw_context_json TEXT NOT NULL,
+            FOREIGN KEY (market_id) REFERENCES markets(id),
+            FOREIGN KEY (alert_id) REFERENCES alerts(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_event_log_market_time
+            ON event_log (market_id, timestamp);
+
+        CREATE INDEX IF NOT EXISTS idx_event_log_type_time
+            ON event_log (event_type, timestamp);
         """
     )
+    _ensure_column(conn, "markets", "status", "TEXT")
+    _ensure_column(conn, "markets", "outcome", "TEXT")
+    _ensure_column(conn, "markets", "resolved_at", "TEXT")
+    _ensure_column(conn, "market_snapshots", "status", "TEXT")
+    _ensure_column(conn, "market_snapshots", "outcome", "TEXT")
+    _ensure_column(conn, "market_snapshots", "resolved_at", "TEXT")
     conn.commit()
 
 
@@ -115,9 +156,10 @@ def insert_snapshot(conn: sqlite3.Connection, snapshot: MarketSnapshot) -> None:
     conn.execute(
         """
         INSERT INTO market_snapshots (
-            market_id, timestamp, yes_price, no_price, volume, liquidity, raw_json
+            market_id, timestamp, yes_price, no_price, volume, liquidity,
+            status, outcome, resolved_at, raw_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             snapshot.market_id,
@@ -126,7 +168,39 @@ def insert_snapshot(conn: sqlite3.Connection, snapshot: MarketSnapshot) -> None:
             snapshot.no_price,
             snapshot.volume,
             snapshot.liquidity,
+            snapshot.status,
+            snapshot.outcome,
+            snapshot.resolved_at.isoformat() if snapshot.resolved_at else None,
             json.dumps(snapshot.raw_json, sort_keys=True),
+        ),
+    )
+    conn.commit()
+
+
+def get_market_state(conn: sqlite3.Connection, market_id: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT status, outcome, resolved_at FROM markets WHERE id = ?",
+        (market_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def update_market_state_from_snapshot(conn: sqlite3.Connection, snapshot: MarketSnapshot) -> None:
+    conn.execute(
+        """
+        UPDATE markets
+        SET status = COALESCE(?, status),
+            outcome = COALESCE(?, outcome),
+            resolved_at = COALESCE(?, resolved_at),
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            snapshot.status,
+            snapshot.outcome,
+            snapshot.resolved_at.isoformat() if snapshot.resolved_at else None,
+            datetime.now(timezone.utc).isoformat(),
+            snapshot.market_id,
         ),
     )
     conn.commit()
@@ -136,7 +210,8 @@ def get_recent_snapshots(conn: sqlite3.Connection, market_id: str, minutes: int 
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
     rows = conn.execute(
         """
-        SELECT market_id, timestamp, yes_price, no_price, volume, liquidity, raw_json
+        SELECT market_id, timestamp, yes_price, no_price, volume, liquidity,
+               status, outcome, resolved_at, raw_json
         FROM market_snapshots
         WHERE market_id = ? AND timestamp >= ?
         ORDER BY timestamp ASC
@@ -165,8 +240,8 @@ def get_last_alert(
     return dict(row) if row else None
 
 
-def insert_alert(conn: sqlite3.Connection, alert: AlertCandidate) -> None:
-    conn.execute(
+def insert_alert(conn: sqlite3.Connection, alert: AlertCandidate) -> int:
+    cursor = conn.execute(
         """
         INSERT INTO alerts (
             market_id, timestamp, alert_type, severity, message,
@@ -189,6 +264,61 @@ def insert_alert(conn: sqlite3.Connection, alert: AlertCandidate) -> None:
         ),
     )
     conn.commit()
+    return int(cursor.lastrowid)
+
+
+def insert_event_log(conn: sqlite3.Connection, entry: EventLogEntry) -> int:
+    cursor = conn.execute(
+        """
+        INSERT INTO event_log (
+            market_id, timestamp, event_type, source, title, details_url, notes,
+            alert_id, yes_price, no_price, volume, outcome, raw_context_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            entry.market_id,
+            entry.timestamp.isoformat(),
+            entry.event_type,
+            entry.source,
+            entry.title,
+            entry.details_url,
+            entry.notes,
+            entry.alert_id,
+            entry.yes_price,
+            entry.no_price,
+            entry.volume,
+            entry.outcome,
+            json.dumps(entry.raw_context, sort_keys=True),
+        ),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def get_event_log(conn: sqlite3.Connection, market_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    if market_id:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM event_log
+            WHERE market_id = ?
+            ORDER BY timestamp DESC, id DESC
+            LIMIT ?
+            """,
+            (market_id, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM event_log
+            ORDER BY timestamp DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def _snapshot_from_row(row: sqlite3.Row) -> MarketSnapshot:
@@ -199,5 +329,14 @@ def _snapshot_from_row(row: sqlite3.Row) -> MarketSnapshot:
         no_price=row["no_price"],
         volume=row["volume"],
         liquidity=row["liquidity"],
+        status=row["status"] if "status" in row.keys() else None,
+        outcome=row["outcome"] if "outcome" in row.keys() else None,
+        resolved_at=datetime.fromisoformat(row["resolved_at"]) if "resolved_at" in row.keys() and row["resolved_at"] else None,
         raw_json=json.loads(row["raw_json"]),
     )
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
