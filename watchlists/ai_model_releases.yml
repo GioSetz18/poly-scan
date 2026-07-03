@@ -1,0 +1,40 @@
+markets:
+  - id: "gemini-pro-release-july-2026"
+    name: "Next Google Gemini Pro model released before deadline"
+    url: "https://polymarket.com/event/next-google-gemini-pro-model-released-onptptpt-20260626213101460"
+    category: "ai_model_release"
+    company: "Google"
+    model_family: "Gemini"
+    event_type: "release"
+    deadline: "2026-07-15"
+    tags:
+      - "google"
+      - "gemini"
+      - "model-release"
+      - "high-specificity"
+    liquidity_tier: "tiny"
+    enabled: true
+    alert_rules:
+      price_move_5m_pp: 8
+      price_move_15m_pp: 12
+      min_absolute_volume_15m_usd: 1000
+      dead_market_volume_15m_usd: 1000
+
+  - id: "anthropic-claude-release"
+    name: "Anthropic Claude model release market"
+    url: "PASTE_MARKET_URL_HERE"
+    category: "ai_model_release"
+    company: "Anthropic"
+    model_family: "Claude"
+    event_type: "release"
+    deadline: null
+    tags:
+      - "anthropic"
+      - "claude"
+      - "model-release"
+    liquidity_tier: "medium"
+    enabled: false
+    alert_rules:
+      price_move_5m_pp: 12
+      price_move_15m_pp: 18
+      min_absolute_volume_15m_usd: 5000
